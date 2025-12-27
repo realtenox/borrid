@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>borrid</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #f0f0f0;
+            font-family: sans-serif;
+            width: 100vw;
+            height: 100vh;
+            transition: background-color 0.3s ease; 
+        }
+
+        body.dark-mode {
+            background-color: #111111;
+        }
+        
+        body.dark-mode .physics-entity {
+            color: #ffffff;
+        }
+
+        #template-container {
+            position: absolute;
+            top: -9999px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 2px;
+            visibility: hidden; 
+        }
+
+        .letter-template {
+            font-size: 4rem;
+            font-weight: bold;
+            color: #333;
+            display: block;
+            line-height: 1;
+            white-space: nowrap;
+        }
+
+        .physics-entity {
+            position: absolute;
+            top: 0;
+            left: 0;
+            font-family: sans-serif;
+            font-size: 4rem;
+            font-weight: bold;
+            color: #333;
+            user-select: none;
+            will-change: transform;
+            transform-origin: 50% 50%;
+            z-index: 10;
+            transition: color 0.3s ease;
+        }
+
+        a.physics-entity {
+            text-decoration: none;
+            color: #0085ff !important;
+            cursor: pointer;
+        }
+        
+        a.physics-entity:hover {
+            color: #0060ba !important;
+        }
+
+        .cursor-pointer {
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="template-container">
+        <span class="letter-template" data-type="link" data-href="https://bsky.app/profile/tenox.dev">b</span>
+        <span class="letter-template">o</span>
+        <span class="letter-template">r</span>
+        <span class="letter-template">r</span>
+        <span class="letter-template">i</span>
+        <span class="letter-template" data-type="toggle">d</span>
+    </div>
+
+    <script>
+        const savedTheme = localStorage.getItem('borrid-theme');
+        if (savedTheme === 'dark') {
+            document.body.classList.add('dark-mode');
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            const Engine = Matter.Engine,
+                  Runner = Matter.Runner,
+                  Bodies = Matter.Bodies,
+                  Composite = Matter.Composite,
+                  Events = Matter.Events,
+                  Mouse = Matter.Mouse,
+                  MouseConstraint = Matter.MouseConstraint;
+
+            const engine = Engine.create();
+            const world = engine.world;
+            
+            let entities = []; 
+            const templates = document.querySelectorAll('.letter-template');
+
+            function toggleDarkMode() {
+                const body = document.body;
+                body.classList.toggle('dark-mode');
+                
+                if (body.classList.contains('dark-mode')) {
+                    localStorage.setItem('borrid-theme', 'dark');
+                } else {
+                    localStorage.setItem('borrid-theme', 'light');
+                }
+            }
+
+            const wallThickness = 100;
+            const floor = Bodies.rectangle(window.innerWidth / 2, window.innerHeight + wallThickness/2, window.innerWidth * 2, wallThickness, { isStatic: true });
+            const leftWall = Bodies.rectangle(0 - wallThickness/2, window.innerHeight/2, wallThickness, window.innerHeight * 2, { isStatic: true });
+            const rightWall = Bodies.rectangle(window.innerWidth + wallThickness/2, window.innerHeight/2, wallThickness, window.innerHeight * 2, { isStatic: true });
+
+            Composite.add(world, [floor, leftWall, rightWall]);
+
+            function spawnLetters(startFromSky = false) {
+                entities.forEach(ent => {
+                    Composite.remove(world, ent.body);
+                    ent.element.remove();
+                });
+                entities = [];
+
+                let totalWidth = 0;
+                const positions = [];
+                const gap = 2;
+
+                templates.forEach(t => {
+                    const rect = t.getBoundingClientRect();
+                    positions.push({ 
+                        width: rect.width, 
+                        height: rect.height, 
+                        text: t.textContent, 
+                        type: t.dataset.type, 
+                        href: t.dataset.href 
+                    });
+                    totalWidth += rect.width + gap;
+                });
+                totalWidth -= gap;
+
+                let currentX = (window.innerWidth / 2) - (totalWidth / 2);
+
+                positions.forEach(pos => {
+                    const centerX = currentX + pos.width / 2;
+                    let centerY = startFromSky ? -100 - (Math.random() * 200) : window.innerHeight / 2;
+
+                    const body = Bodies.rectangle(centerX, centerY, pos.width, pos.height, {
+                        restitution: 0.6,
+                        friction: 0.5,
+                        chamfer: { radius: 5 },
+                        angle: (Math.random() - 0.5) * 0.1
+                    });
+
+                    const domNode = document.createElement(pos.type === 'link' ? 'a' : 'span');
+                    domNode.textContent = pos.text;
+                    domNode.className = 'physics-entity';
+                    domNode.style.width = pos.width + 'px';
+                    domNode.style.height = pos.height + 'px';
+
+                    if (pos.type === 'link') {
+                        domNode.href = pos.href;
+                        domNode.target = "_blank";
+                        domNode.addEventListener('click', (e) => {
+                            if (body.speed > 1) e.preventDefault();
+                        });
+                    }
+
+                    if (pos.type === 'toggle') {
+                        domNode.classList.add('cursor-pointer');
+                        domNode.addEventListener('click', (e) => {
+                            if (body.speed < 1) {
+                                toggleDarkMode();
+                            }
+                        });
+                        domNode.addEventListener('mousedown', (e) => e.preventDefault());
+                    }
+
+                    document.body.appendChild(domNode);
+                    Composite.add(world, body);
+
+                    entities.push({
+                        body: body,
+                        element: domNode,
+                        width: pos.width,
+                        height: pos.height
+                    });
+
+                    currentX += pos.width + gap;
+                });
+            }
+
+            spawnLetters(false);
+
+            const mouse = Mouse.create(document.body);
+            const mouseConstraint = MouseConstraint.create(engine, {
+                mouse: mouse,
+                constraint: { stiffness: 0.2, render: { visible: false } }
+            });
+            mouse.element.removeEventListener("mousewheel", mouse.mousewheel);
+            mouse.element.removeEventListener("DOMMouseScroll", mouse.mousewheel);
+            Composite.add(world, mouseConstraint);
+
+            Events.on(engine, 'afterUpdate', function() {
+                for (let i = entities.length - 1; i >= 0; i--) {
+                    const entity = entities[i];
+                    const body = entity.body;
+                    const el = entity.element;
+
+                    const x = body.position.x - entity.width / 2;
+                    const y = body.position.y - entity.height / 2;
+                    el.style.transform = `translate(${x}px, ${y}px) rotate(${body.angle}rad)`;
+
+                    if (body.position.y < -200 || body.position.x < -200 || body.position.x > window.innerWidth + 200) {
+                        Composite.remove(world, body);
+                        el.remove();
+                        entities.splice(i, 1);
+                    }
+                }
+
+                if (entities.length === 0) {
+                    if (!window.isRespawning) {
+                        window.isRespawning = true;
+                        setTimeout(() => {
+                            spawnLetters(true);
+                            window.isRespawning = false;
+                        }, 500);
+                    }
+                }
+            });
+
+            let lastTime = performance.now();
+
+            function animate() {
+                requestAnimationFrame(animate);
+
+                const now = performance.now();
+                let delta = now - lastTime;
+                lastTime = now;
+
+                if (delta > 100) delta = 100;
+
+                Engine.update(engine, delta * 1); 
+            }
+
+            animate();
+
+            window.addEventListener('resize', () => {
+                Matter.Body.setPosition(floor, { x: window.innerWidth / 2, y: window.innerHeight + 50 });
+                Matter.Body.setPosition(rightWall, { x: window.innerWidth + 50, y: window.innerHeight/2 });
+            });
+        });
+    </script>
+</body>
+</html>
